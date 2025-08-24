@@ -1,0 +1,347 @@
+// ---------------- Firebase SDKs ----------------
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
+// import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-analytics.js"; // disabled for local use
+import { 
+    getAuth, 
+    onAuthStateChanged,
+    createUserWithEmailAndPassword, 
+    signInWithEmailAndPassword, 
+    signInWithPopup, 
+    GoogleAuthProvider,
+    signOut
+} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+import { 
+    getFirestore, 
+    collection, 
+    addDoc, 
+    onSnapshot, 
+    query, 
+    orderBy 
+} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+
+// ---------------- Firebase Config ----------------
+const firebaseConfig = {
+    apiKey: "AIzaSyCzAnKxMW-_B-h-EP9OVC74LBwHemf0LLM",
+    authDomain: "sahayata-hackathon.firebaseapp.com",
+    projectId: "sahayata-hackathon",
+    storageBucket: "sahayata-hackathon.appspot.com",
+    messagingSenderId: "137580379612",
+    appId: "1:137580379612:web:6706fe3992c7d20ee7a319",
+    measurementId: "G-8FH9NS7HCK"
+};
+
+// ---------------- Initialize Firebase ----------------
+const app = initializeApp(firebaseConfig);
+// const analytics = getAnalytics(app); // disable for now
+const auth = getAuth(app);
+const db = getFirestore(app);
+const provider = new GoogleAuthProvider();
+
+// ---------------- DOM Elements ----------------
+const loginSignupBtn = document.getElementById('login-signup-btn');
+const signOutBtn = document.getElementById('sign-out-btn');
+const userInfo = document.getElementById('user-info');
+const userEmailSpan = document.getElementById('user-email');
+const authPage = document.getElementById('page-auth');
+const loginForm = document.getElementById('login-form');
+const signupForm = document.getElementById('signup-form');
+const googleSigninBtn = document.getElementById('google-signin-btn');
+const authError = document.getElementById('auth-error');
+const authTabs = document.querySelectorAll('.auth-tab');
+const scanImageBtn = document.getElementById('scan-image-btn');
+const imageUploadInput = document.getElementById('item-image-upload');
+const scanResultsContainer = document.getElementById('scan-results-container');
+const loadingIndicator = document.getElementById('loading-indicator');
+const identifiedItemsText = document.getElementById('identified-items-text');
+const populateFormBtn = document.getElementById('populate-form-btn');
+const homeFormDescription = document.getElementById('home-form-description');
+
+// ---------------- Auth State Listener ----------------
+onAuthStateChanged(auth, user => {
+    if (user) {
+        if (loginSignupBtn) loginSignupBtn.style.display = 'none';
+        if (userInfo) userInfo.style.display = 'flex';
+        if (userEmailSpan) userEmailSpan.textContent = user.email;
+        if (authPage && authPage.classList.contains('active')) {
+            showPage('page-home');
+        }
+    } else {
+        if (loginSignupBtn) loginSignupBtn.style.display = 'block';
+        if (userInfo) userInfo.style.display = 'none';
+        if (userEmailSpan) userEmailSpan.textContent = '';
+    }
+});
+
+// ---------------- Page Navigation ----------------
+const showPage = (pageId) => {
+    document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+    const activePage = document.getElementById(pageId);
+    if (activePage) activePage.classList.add('active');
+    window.scrollTo(0, 0);
+};
+
+// Navigation buttons
+if (loginSignupBtn) loginSignupBtn.addEventListener('click', () => showPage('page-auth'));
+if (signOutBtn) signOutBtn.addEventListener('click', () => signOut(auth).catch(err => console.error("Sign out error", err)));
+const homeBtn = document.getElementById('home-button');
+if (homeBtn) homeBtn.addEventListener('click', () => showPage('page-home'));
+document.querySelectorAll('.back-button').forEach(b => b.addEventListener('click', () => showPage('page-home')));
+document.querySelectorAll('.category-card-food, .category-card-medical, .category-card-education, .category-card-house').forEach(card => {
+    card.addEventListener('click', () => {
+        const pageId = card.dataset.page;
+        if (pageId) showPage(pageId);
+    });
+});
+
+// ---------------- Auth Forms ----------------
+if (loginForm) {
+    loginForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        signInWithEmailAndPassword(auth, email, password)
+            .catch(error => { if (authError) authError.textContent = error.message; });
+    });
+}
+
+if (signupForm) {
+    signupForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const email = document.getElementById('signup-email').value;
+        const password = document.getElementById('signup-password').value;
+        createUserWithEmailAndPassword(auth, email, password)
+            .catch(error => { if (authError) authError.textContent = error.message; });
+    });
+}
+
+if (googleSigninBtn) {
+    googleSigninBtn.addEventListener('click', () => {
+        signInWithPopup(auth, provider)
+            .catch(error => { if (authError) authError.textContent = error.message; });
+    });
+}
+
+if (authTabs) {
+    authTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            authTabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+            const form = document.getElementById(`${tab.dataset.tab}-form`);
+            if (form) form.classList.add('active');
+            if (authError) authError.textContent = '';
+        });
+    });
+}
+
+// ---------------- Firestore Form Submissions ----------------
+document.querySelectorAll('form[data-collection]').forEach(form => {
+    form.addEventListener('submit', async e => {
+        e.preventDefault();
+        if (!auth.currentUser) {
+            alert('You must be logged in to make a donation.');
+            showPage('page-auth');
+            return;
+        }
+        const collectionName = form.dataset.collection;
+        const formData = new FormData(form);
+        const newData = {};
+        formData.forEach((value, key) => newData[key] = value);
+        newData.createdAt = new Date();
+        newData.userEmail = auth.currentUser.email;
+
+        try {
+            await addDoc(collection(db, collectionName), newData);
+            form.reset();
+            alert('✅ Thank you! Your donation is listed.');
+            showPage('page-home');
+        } catch (err) {
+            console.error("Error adding document: ", err);
+            alert('❌ Submission failed. Please try again.');
+        }
+    });
+});
+
+// ---------------- Real-time Firestore Listeners ----------------
+function setupRealtimeListener(collectionName, gridElementId, cardRenderer) {
+    const q = query(collection(db, collectionName), orderBy("createdAt", "desc"));
+    const grid = document.getElementById(gridElementId);
+    if (grid) {
+        onSnapshot(q, (snapshot) => {
+            grid.innerHTML = '';
+            snapshot.forEach(doc => grid.appendChild(cardRenderer(doc.data())));
+        });
+    }
+}
+
+// ---------------- Card Creators ----------------
+const createFoodCard = data => {
+    const card = document.createElement('div');
+    card.className = 'listing-card';
+    let pickupDate = 'ASAP';
+    if (data.pickupBy) {
+        const date = new Date(data.pickupBy);
+        // This check prevents errors from invalid dates
+        if (!isNaN(date.getTime())) {
+            const options = { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true };
+            pickupDate = new Intl.DateTimeFormat('en-IN', options).format(date);
+        }
+    }
+    card.innerHTML = `
+        <div class="listing-card-header">
+            <div>
+                <h4 class="listing-card-title">${data.source} Surplus</h4>
+                <p class="listing-card-subtitle">Pickup by: ${pickupDate}</p>
+            </div>
+            <span class="listing-card-tag tag-food">${data.source}</span>
+        </div>
+        <p class="listing-card-body">${data.description}</p>
+        <div class="listing-card-footer">
+            <span><i class="ph ph-map-pin"></i> ${data.location}</span>
+            <span>By: ${data.userEmail.split('@')[0]}</span>
+        </div>`;
+    return card;
+};
+
+const createMedicalCard = data => {
+    const card = document.createElement('div');
+    card.className = 'listing-card';
+    card.innerHTML = `
+        <div class="listing-card-header">
+            <div>
+                <h4 class="listing-card-title">${data.type}</h4>
+                <p class="listing-card-subtitle">Condition: ${data.condition}</p>
+            </div>
+            <span class="listing-card-tag tag-medical">${data.type}</span>
+        </div>
+        <p class="listing-card-body">${data.description}</p>
+        <div class="listing-card-footer">
+            <span><i class="ph ph-map-pin"></i> ${data.location}</span>
+            <span>Qty: ${data.quantity}</span>
+        </div>`;
+    return card;
+};
+
+const createEducationCard = data => {
+    const card = document.createElement('div');
+    card.className = 'listing-card';
+    card.innerHTML = `
+        <div class="listing-card-header">
+            <div>
+                <h4 class="listing-card-title">${data.type}</h4>
+                <p class="listing-card-subtitle">For: ${data.ageGroup}</p>
+            </div>
+            <span class="listing-card-tag tag-education">${data.type}</span>
+        </div>
+        <p class="listing-card-body">${data.description}</p>
+        <div class="listing-card-footer">
+            <span><i class="ph ph-map-pin"></i> ${data.location}</span>
+            <span>Qty: ${data.quantity}</span>
+        </div>`;
+    return card;
+};
+
+const createHomeCard = data => {
+    const card = document.createElement('div');
+    card.className = 'listing-card';
+    card.innerHTML = `
+        <div class="listing-card-header">
+            <div>
+                <h4 class="listing-card-title">${data.category}</h4>
+                <p class="listing-card-subtitle">Condition: ${data.condition}</p>
+            </div>
+            <span class="listing-card-tag tag-home">${data.category}</span>
+        </div>
+        <p class="listing-card-body">${data.description}</p>
+        <div class="listing-card-footer">
+            <span><i class="ph ph-map-pin"></i> ${data.location}</span>
+            <span>Qty: ${data.quantity}</span>
+        </div>`;
+    return card;
+};
+
+// Init Firestore listeners
+setupRealtimeListener('foodDonations', 'food-listing-grid', createFoodCard);
+setupRealtimeListener('medicalDonations', 'medical-listing-grid', createMedicalCard);
+setupRealtimeListener('educationDonations', 'education-listing-grid', createEducationCard);
+setupRealtimeListener('homeDonations', 'home-listing-grid', createHomeCard);
+
+// ---------------- Gemini Image Scanner ----------------
+if (scanImageBtn) {
+    scanImageBtn.addEventListener('click', async () => {
+        const file = imageUploadInput.files[0];
+        if (!file) {
+            alert("Please upload an image first.");
+            return;
+        }
+        if (scanResultsContainer) scanResultsContainer.style.display = 'block';
+        if (loadingIndicator) loadingIndicator.style.display = 'block';
+        const scanResults = document.getElementById('scan-results');
+        if (scanResults) scanResults.style.display = 'none';
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64ImageData = reader.result.split(',')[1];
+            scanImageWithGemini(base64ImageData, file.type);
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+async function scanImageWithGemini(base64ImageData, mimeType = "image/jpeg") {
+    const apiKey = "AIzaSyAuD04hfA3dvBrjlIV2pvoKEKAaS9j2z-U"; 
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+    const payload = {
+        contents: [{
+            parts: [
+                { text: "Identify the donatable household items in this image. List them clearly as a comma-separated list." },
+                { inlineData: { mimeType, data: base64ImageData } }
+            ]
+        }]
+    };
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) throw new Error(`API request failed: ${response.status}`);
+
+        const result = await response.json();
+        console.log("Gemini result:", result);
+
+        // Safely parse text
+        let text = "No items detected.";
+        if (result.candidates?.length > 0) {
+            const parts = result.candidates[0].content?.parts;
+            if (parts && parts[0]?.text) text = parts[0].text;
+        }
+
+        if (loadingIndicator) loadingIndicator.style.display = 'none';
+        const scanResults = document.getElementById('scan-results');
+        if (scanResults) scanResults.style.display = 'block';
+        if (identifiedItemsText) identifiedItemsText.textContent = text;
+
+    } catch (error) {
+        console.error("Error scanning image:", error);
+        if (loadingIndicator) loadingIndicator.style.display = 'none';
+        const scanResults = document.getElementById('scan-results');
+        if (scanResults) scanResults.style.display = 'block';
+        if (identifiedItemsText) identifiedItemsText.textContent = '❌ Scan failed. Please try again.';
+    }
+}
+
+if (populateFormBtn) {
+    populateFormBtn.addEventListener('click', () => {
+        if (identifiedItemsText && homeFormDescription) {
+            const items = identifiedItemsText.textContent;
+            if (items) {
+                homeFormDescription.value = items;
+                alert('✅ Description field filled. Please complete the rest of the form.');
+            }
+        }
+    });
+}
