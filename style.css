@@ -148,6 +148,7 @@ section {
   display: flex;
   align-items: center;
   gap: 1rem;
+  margin-top: 5px;
   margin-bottom: 3rem;
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--border-color);
@@ -163,7 +164,6 @@ section {
   align-items: center;
   justify-content: center;
   transition: background-color 0.2s ease;
-  margin-top: 5px;
 }
 .back-button:hover {
   background: #30363d;
